@@ -1,0 +1,220 @@
+---
+title: "54321"
+author: "TSENG NHUNDU"
+format: html
+editor: visual
+bibliography: references.bib
+csl: "https://www.zotero.org/styles/apa"
+css: styles.css
+---
+## Choosing a paper
+
+1. Inside the Box
+2. Immigration and Crime 
+
+The first one was written by an author who used R to do most of the work, so the professor suggested that we choose another one. 
+
+## Challenge
+
+Missing the total population data of the countries used in Figure 2 on the website author offered
+
+
+Replicate the Graph
+
+```{r}
+if (!dir.exists("Fig")) {dir.create("Fig")}
+```
+
+
+
+![Figure 1. Original Graph](Fig/original.png){ 
+  fig-cap="Figure 1. Original Graph"
+  fig-align="center"
+  width="60%"
+  fig-attr='style="text-align:center;font-size:0.8em;"'}
+  
+[@marie2024]
+
+## Code to Replicate
+
+
+```{r}
+# Install pacman, then use it to install/load haven, dplyr, tidyr, ggplot2, scales, ggrepel, patchwork, tidyverse
+if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
+pacman::p_load(haven, dplyr, tidyr, ggplot2, scales, ggrepel, patchwork, tidyverse)
+```
+
+
+
+```{r}
+#Read the Stata dataset
+df <- haven::read_dta("R data/data/cross_country_data_homicide_migration.dta")
+```
+
+
+```{r}
+#Inspect the data
+head(df)# Print the first few rows
+names(df)# Show column names
+```
+
+
+```{r}
+nrow(df)# Count the number of rows
+```
+
+```{r}
+str(df)
+```
+
+                                                                                                                                                                                                                                                                                                                                             -                            
+```{r}
+#Compute population‐weighted time series
+ts <- df %>%
+  group_by(year) %>%
+# Weighted average of migrant stock over population
+  summarise(migr_w = sum(migr_pop * pop1990) / sum(pop1990), 
+# Weighted average of homicide rate
+hom_w  = sum(homicide_rate * pop1990) / sum(pop1990))
+sf <- max(ts$hom_w) / max(ts$migr_w)
+# Draw the dual‐axis time‐series plot
+p1 <- ggplot(ts, aes(year)) +
+  geom_line(aes(y = migr_w),  color="grey40", linewidth=1) +# Left axis: gray line + hollow circles = migrant share
+  geom_point(aes(y = migr_w), color="grey40", shape=21) +# Right axis: blue line + hollow triangles = homicide rate
+  geom_line(aes(y = hom_w / sf),  color="blue", linewidth=1) +
+  geom_point(aes(y = hom_w / sf), color="blue", shape=24) +# Add a secondary y‐axis for homicide rate
+  scale_y_continuous(name = "Stock of migrants over population",
+    sec.axis = sec_axis(~ . * sf, name = "Homicide rate per 100,000 inhabitants"))
+# X‐axis ticks at 1990, 1995, …, 2020
+  scale_x_continuous(breaks = seq(1990, 2020, 5)) 
+  
+p1
+```
+```{r}
+p1 <- p1 +
+  theme_minimal() +
+  theme(axis.title.x = element_blank())# Remove x‐axis title
+
+p1
+```
+
+[@marie2024]
+
+```{r}
+#Pick out the two years 1990 and 2019 from the original data
+df2 <- df %>%
+  filter(year %in% c(1990, 2019)) %>%
+  select(code, year, migr_pop, homicide_rate, pop1990)
+```
+```{r}
+#check the data
+head(df2)
+```
+```{r}
+library(dplyr)
+library(tidyr)
+
+#Compute natural‐log of migration share and homicide rate
+df3 <- df2 %>%
+  mutate(
+    ln_migr  = log(migr_pop),
+    ln_homic = log(homicide_rate)
+  ) %>%
+  select(code, year, ln_migr, ln_homic, pop1990)
+```
+                                                                                
+                                                                                                                                                                                    
+```{r}
+head(df3)
+```
+
+```{r}
+# 3. Pivot the data from long to wide so each year is its own column
+df4 <- df3 %>%
+  pivot_wider(names_from  = year,
+    values_from = c(ln_migr, ln_homic),
+    names_sep   = "_") %>%
+  mutate(
+    dln_migr  = ln_migr_2019  - ln_migr_1990,
+    dln_homic = ln_homic_2019 - ln_homic_1990)
+```
+
+```{r}
+# 4. Calculate log‐changes between 1990 and 2019
+df4 <- df4 %>%
+  mutate(
+    dln_migr  = ln_migr_2019  - ln_migr_1990,  # change in ln(migration share)
+    dln_homic = ln_homic_2019 - ln_homic_1990   # change in ln(homicide rate)
+  )
+```
+
+```{r}
+# 5. Draw the scatter plot with text labels and a pop‐weighted regression line
+library(ggplot2)
+library(ggrepel)
+```
+
+```{r}
+p2 <- ggplot(df4, aes(x = dln_migr, y = dln_homic, weight = pop1990)) +
+  geom_point(shape = 21, fill = NA, color = "black") +       # hollow circles
+  geom_text_repel(aes(label = code), size = 3) +             # country codes
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +   # weighted least‐squares line
+  theme_minimal() +                                          # clean background
+  labs(
+    title = "Immigration and homicides (pop. weighted)",    # plot title
+    x     = "Log change migration, 1990–2019",              # x‐axis label
+    y     = "Log change homicides, 1990–2019"               # y‐axis label
+  )
+```
+
+```{r}
+# 6. Display the plot
+print(p2)
+```
+
+## Problem and Solution
+### Problem 1**
+
+![Figure 2. Problem 1](Fig/problem 1.png)
+ 
+
+
+Chatgpt explaination: 
+You see that the gray "immigrant proportion" line is always close to 0. This is because the dual Y axes of ggplot2 are not truly "independently scaled", but share a set of numerical spaces
+
+###Solution:
+
+1. Define a scaling parameter, say sf, to scale the murder rate to the range of 0–0.055:
+Use max(ts$hom_w) / max(ts$migr_w) to automatically calculate sf
+sf <- max(ts$hom_w) / max(ts$migr_w)
+
+2. Multiply hom_w by sf in the graph to make it fall in the range of 0–0.055:
+
+p1 <- ggplot(ts, aes(x = year)) +
+geom_line(aes(y = migr_w), color = "grey40", linewidth = 1) +
+geom_point(aes(y = migr_w), color = "grey40", shape = 21) +
+geom_line(aes(y = hom_w / sf), color = "blue", linewidth = 1) +
+geom_point(aes(y = hom_w / sf),color = "blue", shape = 24) +
+scale_y_continuous(
+name = "Stock of migrants over population",
+# Use ^ on the right axis to "reverse" the true murder rate
+sec.axis = sec_axis(~ . * sf,
+name = "Homicide rate per 100,000 inhabitants")
+) +
+scale_x_continuous(breaks = seq(1990, 2020, by = 5)) +
+theme_minimal() +
+theme(axis.title.x = element_blank())
+print(p1)
+Here we use y = hom_w / sf when drawing the blue line (equivalent to "compressing" the murder rate to the small interval of the proportion of immigrants),
+Then use sec_axis(~ . * sf) to "expand" the label on the right back to the true murder rate value.
+
+### Problem 2
+
+Unable to center image caption
+ 
+
+![Original Graph](Fig/original.png){fig-cap="Figure 1. Original Graph" fig-align="center" width="60%" fig-attr='style="font-size:0.8em;"'}
+
+### Solution
+
+Make a styles.css file and typed figure > figcaption {text-align: center;font-size: 0.8em;} and Reference it in my YAML header
