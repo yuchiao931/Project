@@ -1,0 +1,261 @@
+---
+title: "54321"
+author: "TSENG NHUNDU"
+format: html
+editor: visual
+bibliography: references.bib
+csl: "https://www.zotero.org/styles/apa"
+css: styles.css
+---
+
+## Choosing a paper
+
+1.  Inside the Box
+2.  Immigration and Crime
+
+The first one was written by an author who used R to do most of the work, so the professor suggested that we choose another one.
+
+## Challenge
+
+Missing the total population data of the countries used in Figure 2 on the website author offered
+
+Replicate the Graph
+
+```{r}
+if (!dir.exists("Fig")) {dir.create("Fig")}
+```
+
+![Figure 1. Original Graph](Fig/original.png){fig-cap="Figure 1. Original Graph" fig-align="center" width="60%" fig-attr="style=\"text-align:center;font-size:0.8em;\""}
+
+[@marie2024]
+
+## Code to Replicate
+
+```{r setup, include=FALSE}
+# CRAN Mirror & Install p_load
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+if (!requireNamespace("pacman", quietly=TRUE)) install.packages("pacman")
+pacman::p_load(
+  haven, dplyr, tidyr, WDI, countrycode,
+  ggplot2, ggrepel, scales
+)
+# Reading in raw Stata data
+df <- read_dta("R data/data/cross_country_data_homicide_migration.dta")
+```
+
+
+```{r}
+#Inspect the data
+head(df)# Print the first few rows
+names(df)# Show column names
+```
+
+```{r ts-plot, echo=FALSE, fig.cap="Migration share and homicide rate, population-weighted by WB total population"}
+
+library(dplyr)
+library(WDI)
+library(countrycode)
+library(ggplot2)
+library(scales)
+
+# 1) Pull pop and merge
+wb_pop_ts <- WDI("all", "SP.POP.TOTL", 1990, 2019, extra=TRUE) %>%
+  filter(region!="Aggregates") %>%
+  mutate(code = countrycode(iso2c,"iso2c","iso3c")) %>%
+  select(code, year, pop_total = SP.POP.TOTL)
+
+ts_df <- df %>%
+  left_join(wb_pop_ts, by=c("code","year")) %>%
+  group_by(year) %>%
+  summarise(
+    migr_w = sum(migr_pop * pop_total, na.rm=TRUE) / sum(pop_total, na.rm=TRUE),
+    hom_w  = sum(homicide_rate * pop_total, na.rm=TRUE) / sum(pop_total, na.rm=TRUE)
+  )
+
+# 2) Compute scale factor to align hom_w with migr_w scale
+sf <- max(ts_df$hom_w) / max(ts_df$migr_w)
+
+# 3) Plot: migration on primary axis, homicide/sf on primary
+ggplot(ts_df, aes(x=year)) +
+  geom_line(aes(y = migr_w), color="grey40", linewidth=1) +
+  geom_point(aes(y = migr_w), color="grey40", shape=21) +
+  geom_line(aes(y = hom_w / sf), color="blue", linewidth=1) +
+  geom_point(aes(y = hom_w / sf), color="blue", shape=24) +
+  scale_x_continuous(breaks = seq(1990, 2020, 5)) +
+  scale_y_continuous(
+    name = "Stock of migrants over population",
+    labels = percent_format(accuracy=0.1),
+    sec.axis = sec_axis(~ . * sf, name = "Homicide rate per 100,000 inhabitants")
+  ) +
+  theme_minimal() +
+  theme(axis.title.x = element_blank())
+```
+
+
+
+
+
+[@marie2024]
+
+
+
+```{r fig2-bottom-wb-selected, echo=FALSE, message=FALSE, warning=FALSE}
+# Install the package
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(WDI)
+library(countrycode)
+
+# 1) select the 55 countries
+iso3_codes <- c(
+  "ARM","AUS","AUT","AZE","BGR","BIH","BLR","BRA","CAN","CHE","COL","CRI",
+  "DEU","DNK","ECU","ESP","EST","FIN","FRA","GBR","GEO","GRC","HKG","HND",
+  "HRV","IND","IRL","ITA","JAM","JPN","KGZ","KOR","LKA","LTU","MAR","MDA",
+  "MEX","MUS","NLD","NOR","PAK","PAN","PHL","POL","PRI","PRT","ROU","RUS",
+  "SGP","SVK","SVN","SWE","URY","USA","VEN"
+)
+
+# 2) Filter out 1990 & 2019 from df (the complete data frame read_dta() previously)
+df2 <- df %>%
+  filter(code %in% iso3_codes,             # filter the 55 countries
+         year %in% c(1990, 2019)) %>%        # only 1990/2019
+  mutate(
+    ln_migr  = log(migr_pop),
+    ln_homic = log(homicide_rate)
+  )
+cat("df2 rows:", nrow(df2), "\n")
+print(head(df2))
+
+# 3) Get the total population from the World Bank
+# (first grab all years, then join and then pivot)
+wb_pop <- WDI(
+  country   = "all",
+  indicator = "SP.POP.TOTL",
+  start     = 1990,
+  end       = 2019,
+  extra     = TRUE
+) %>%
+  filter(region != "Aggregates") %>%
+  mutate(code = countrycode(iso2c, "iso2c", "iso3c")) %>%
+  select(code, year, pop_total = SP.POP.TOTL)
+
+# 4) Merge, widen, and calculate log-change
+df_sc <- df2 %>%
+  left_join(wb_pop, by = c("code","year")) %>%
+  select(code, year, ln_migr, ln_homic, pop_total) %>%  # ← 把 population、homicide_rate、migr_pop 全扔掉
+  pivot_wider(
+    names_from  = year,
+    values_from = c(ln_migr, ln_homic, pop_total),
+    names_sep   = "_"
+  ) %>%
+  mutate(
+    dln_migr  = ln_migr_2019  - ln_migr_1990,
+    dln_homic = ln_homic_2019 - ln_homic_1990
+  ) %>%
+  filter(!is.na(pop_total_1990))
+
+
+```
+
+```{r}
+# 5) Check the amout of rows of data
+cat("Rows to plot:", nrow(df_sc), "\n")
+```
+```{r}
+df_tmp <- df2 %>%
+  left_join(wb_pop, by = c("code","year")) %>%
+  pivot_wider(
+    names_from  = year,
+    values_from = c(ln_migr, ln_homic, pop_total),
+    names_sep   = "_"
+  )
+print(head(df_tmp))# check the rows after pivot
+cat("Rows after pivot:", nrow(df_tmp), "\n")
+```
+
+```{r}
+with(df_sc, summary(dln_migr))
+with(df_sc, summary(dln_homic))
+```
+
+
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+ggplot(df_sc, aes(x = dln_migr, y = dln_homic)) +
+  geom_point(shape = 21, fill = NA, color = "black") +
+  geom_text_repel(aes(label = code), size = 3) +
+  geom_smooth(method = "lm",
+              se     = FALSE,
+              aes(weight = pop_total_1990)) +
+  theme_minimal(base_size = 12) +
+  labs(
+    title = "Immigration and homicides (pop. weighted)",
+    x     = "Log change migration, 1990–2019",
+    y     = "Log change homicides, 1990–2019"
+  )
+```
+
+
+
+
+
+
+## Problem and Solution
+
+### Problem 1
+
+![Figure 2. Problem 1](Fig/problem 1.png)
+
+The gray "immigrant proportion" line is always close to 0. This is because the dual Y axes of ggplot2 are not truly "independently scaled", but share a set of numerical spaces
+
+### Solution:
+
+1.  Define a scaling parameter, say sf, to scale the murder rate to the range of 0–0.055: Use max(ts$hom_w) / max(ts$migr_w) to automatically calculate sf sf \<- max(ts$hom_w) / max(ts$migr_w)
+
+2.  Multiply hom_w by sf in the graph to make it fall in the range of 0–0.055:
+
+p1 \<- ggplot(ts, aes(x = year)) + geom_line(aes(y = migr_w), color = "grey40", linewidth = 1) + geom_point(aes(y = migr_w), color = "grey40", shape = 21) + geom_line(aes(y = hom_w / sf), color = "blue", linewidth = 1) + geom_point(aes(y = hom_w / sf),color = "blue", shape = 24) + scale_y_continuous( name = "Stock of migrants over population", \# Use \^ on the right axis to "reverse" the true murder rate sec.axis = sec_axis(\~ . \* sf, name = "Homicide rate per 100,000 inhabitants") ) + scale_x_continuous(breaks = seq(1990, 2020, by = 5)) + theme_minimal() + theme(axis.title.x = element_blank()) print(p1) Here we use y = hom_w / sf when drawing the blue line (equivalent to "compressing" the murder rate to the small interval of the proportion of immigrants), Then use sec_axis(\~ . \* sf) to "expand" the label on the right back to the true murder rate value.
+
+### Problem 2
+
+No dots on scatter plot
+
+
+![Figure 3. Problem 2](Fig/problem 2.png)
+The problem is in the plot data frame, all rows corresponding to x = dln_migr or y = dln_homic are treated as NA, so ggplot automatically discards them.
+
+
+### Solution 
+
+Keep only the columns I need before pivoting
+
+df_sc <- df2 %>%
+  left_join(wb_pop, by = c("code","year")) %>%
+  select(code, year, ln_migr, ln_homic, pop_total) %>%  # ← Throw away population, homicide_rate, and migr_pop
+  pivot_wider(
+    names_from  = year,
+    values_from = c(ln_migr, ln_homic, pop_total),
+    names_sep   = "_"
+  ) %>%
+  mutate(
+    dln_migr  = ln_migr_2019  - ln_migr_1990,
+    dln_homic = ln_homic_2019 - ln_homic_1990
+  ) %>%
+  filter(!is.na(pop_total_1990))
+
+
+### Problem 3
+
+Unable to center image caption
+
+![Original Graph](Fig/original.png){fig-cap="Figure 1. Original Graph" fig-align="center" width="60%" fig-attr="style=\"font-size:0.8em;\""}
+
+### Solution
+
+Make a styles.css file and typed figure \> figcaption {text-align: center;font-size: 0.8em;} and Reference it in YAML header
+
