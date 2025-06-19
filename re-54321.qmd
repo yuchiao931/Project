@@ -43,7 +43,6 @@ pacman::p_load(
 df <- read_dta("R data/data/cross_country_data_homicide_migration.dta")
 ```
 
-
 ```{r}
 #Inspect the data
 head(df)# Print the first few rows
@@ -52,52 +51,79 @@ names(df)# Show column names
 
 ```{r ts-plot, echo=FALSE, fig.cap="Migration share and homicide rate, population-weighted by WB total population"}
 
-library(dplyr)
 library(WDI)
+library(dplyr)
 library(countrycode)
-library(ggplot2)
 library(scales)
+library(ggplot2)
 
-# 1) Pull pop and merge
-wb_pop_ts <- WDI("all", "SP.POP.TOTL", 1990, 2019, extra=TRUE) %>%
-  filter(region!="Aggregates") %>%
-  mutate(code = countrycode(iso2c,"iso2c","iso3c")) %>%
+# First pull out the required ISO3 list
+iso3c_vec <- c("ARM","AUS","AUT","AZE","BGR","BIH","BLR","BRA","CAN","CHE","COL","CRI",
+  "DEU","DNK","ECU","ESP","EST","FIN","FRA","GBR","GEO","GRC","HKG","HND",
+  "HRV","IND","IRL","ITA","JAM","JPN","KGZ","KOR","LKA","LTU","MAR","MDA",
+  "MEX","MUS","NLD","NOR","PAK","PAN","PHL","POL","PRI","PRT","ROU","RUS",
+  "SGP","SVK","SVN","SWE","URY","USA","VEN")
+
+
+# 1) Filter population
+wb_pop_ts <- WDI(
+    country   = "all",
+    indicator = "SP.POP.TOTL",
+    start     = 1990,
+    end       = 2019,
+    extra     = TRUE
+  ) %>%
+  filter(region != "Aggregates") %>%
+  # generate iso3c
+  mutate(code = countrycode(iso2c, "iso2c", "iso3c")) %>%
+  # Keep the select countries
+  filter(code %in% iso3c_vec) %>%
   select(code, year, pop_total = SP.POP.TOTL)
 
+# 2) Combine and calculate weighted indicators
 ts_df <- df %>%
-  left_join(wb_pop_ts, by=c("code","year")) %>%
+  left_join(wb_pop_ts, by = c("code","year")) %>%
   group_by(year) %>%
   summarise(
-    migr_w = sum(migr_pop * pop_total, na.rm=TRUE) / sum(pop_total, na.rm=TRUE),
-    hom_w  = sum(homicide_rate * pop_total, na.rm=TRUE) / sum(pop_total, na.rm=TRUE)
+    migr_w = sum(migr_pop * pop_total, na.rm = TRUE) / sum(pop_total, na.rm = TRUE),
+    hom_w  = sum(homicide_rate * pop_total, na.rm = TRUE) / sum(pop_total, na.rm = TRUE)
   )
 
-# 2) Compute scale factor to align hom_w with migr_w scale
+# 3) Calculate proportions and draw
 sf <- max(ts_df$hom_w) / max(ts_df$migr_w)
 
-# 3) Plot: migration on primary axis, homicide/sf on primary
-ggplot(ts_df, aes(x=year)) +
+
+ggplot(ts_df, aes(x = year)) +
   geom_line(aes(y = migr_w), color="grey40", linewidth=1) +
   geom_point(aes(y = migr_w), color="grey40", shape=21) +
   geom_line(aes(y = hom_w / sf), color="blue", linewidth=1) +
   geom_point(aes(y = hom_w / sf), color="blue", shape=24) +
   scale_x_continuous(breaks = seq(1990, 2020, 5)) +
   scale_y_continuous(
-    name = "Stock of migrants over population",
-    labels = percent_format(accuracy=0.1),
-    sec.axis = sec_axis(~ . * sf, name = "Homicide rate per 100,000 inhabitants")
+    name      = "Stock of migrants over population",
+    labels    = percent_format(accuracy = 0.1),
+    sec.axis  = sec_axis(~ . * sf, name = "Homicide rate per 100,000 inhabitants")
   ) +
   theme_minimal() +
   theme(axis.title.x = element_blank())
 ```
-
-
-
-
+```{r}
+df %>%
+  filter(code %in% iso3c_vec) %>%
+  group_by(year) %>%
+  summarise(n_country = n_distinct(code))
+```
+```{r}
+wb_pop_ts %>%
+  filter(code=="USA", year %in% c(1990, 2000, 2010, 2019))
+# 这几行 pop_total 应该在官方都是
+#   1990 ~ 248 million
+#   2000 ~ 282 million
+#   2010 ~ 309 million
+#   2019 ~ 328 million
+```
 
 [@marie2024]
-
-
 
 ```{r fig2-bottom-wb-selected, echo=FALSE, message=FALSE, warning=FALSE}
 # Install the package
@@ -163,6 +189,7 @@ df_sc <- df2 %>%
 # 5) Check the amout of rows of data
 cat("Rows to plot:", nrow(df_sc), "\n")
 ```
+
 ```{r}
 df_tmp <- df2 %>%
   left_join(wb_pop, by = c("code","year")) %>%
@@ -179,8 +206,6 @@ cat("Rows after pivot:", nrow(df_tmp), "\n")
 with(df_sc, summary(dln_migr))
 with(df_sc, summary(dln_homic))
 ```
-
-
 
 ```{r}
 library(ggplot2)
@@ -200,16 +225,11 @@ ggplot(df_sc, aes(x = dln_migr, y = dln_homic)) +
   )
 ```
 
-
-
-
-
-
 ## Problem and Solution
 
 ### Problem 1
 
-![Figure 2. Problem 1](Fig/problem 1.png)
+![Figure 2. Problem 1](Fig/problem%201.png)
 
 The gray "immigrant proportion" line is always close to 0. This is because the dual Y axes of ggplot2 are not truly "independently scaled", but share a set of numerical spaces
 
@@ -225,29 +245,13 @@ p1 \<- ggplot(ts, aes(x = year)) + geom_line(aes(y = migr_w), color = "grey40", 
 
 No dots on scatter plot
 
+![Figure 3. Problem 2](Fig/problem%202.png) The problem is in the plot data frame, all rows corresponding to x = dln_migr or y = dln_homic are treated as NA, so ggplot automatically discards them.
 
-![Figure 3. Problem 2](Fig/problem 2.png)
-The problem is in the plot data frame, all rows corresponding to x = dln_migr or y = dln_homic are treated as NA, so ggplot automatically discards them.
-
-
-### Solution 
+### Solution
 
 Keep only the columns I need before pivoting
 
-df_sc <- df2 %>%
-  left_join(wb_pop, by = c("code","year")) %>%
-  select(code, year, ln_migr, ln_homic, pop_total) %>%  # ← Throw away population, homicide_rate, and migr_pop
-  pivot_wider(
-    names_from  = year,
-    values_from = c(ln_migr, ln_homic, pop_total),
-    names_sep   = "_"
-  ) %>%
-  mutate(
-    dln_migr  = ln_migr_2019  - ln_migr_1990,
-    dln_homic = ln_homic_2019 - ln_homic_1990
-  ) %>%
-  filter(!is.na(pop_total_1990))
-
+df_sc \<- df2 %\>% left_join(wb_pop, by = c("code","year")) %\>% select(code, year, ln_migr, ln_homic, pop_total) %\>% \# ← Throw away population, homicide_rate, and migr_pop pivot_wider( names_from = year, values_from = c(ln_migr, ln_homic, pop_total), names_sep = "\_" ) %\>% mutate( dln_migr = ln_migr_2019 - ln_migr_1990, dln_homic = ln_homic_2019 - ln_homic_1990 ) %\>% filter(!is.na(pop_total_1990))
 
 ### Problem 3
 
@@ -258,4 +262,3 @@ Unable to center image caption
 ### Solution
 
 Make a styles.css file and typed figure \> figcaption {text-align: center;font-size: 0.8em;} and Reference it in YAML header
-
