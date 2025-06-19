@@ -116,7 +116,7 @@ df %>%
 ```{r}
 wb_pop_ts %>%
   filter(code=="USA", year %in% c(1990, 2000, 2010, 2019))
-# 这几行 pop_total 应该在官方都是
+# These pop_total should be officially
 #   1990 ~ 248 million
 #   2000 ~ 282 million
 #   2010 ~ 309 million
